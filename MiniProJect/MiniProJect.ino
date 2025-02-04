@@ -5,8 +5,9 @@
 #define SensorinSeaDown D2
 #define SensorinSeaUp D1
 #define Wather_Pump D7
+#define LINE_TOKEN  "pBxbGXP8K2Ga9Zn8aOIKeolnR1l4ZZnZamP8ZfXDSQY"   // บรรทัดที่ 13 ใส่ รหัส TOKEN ที่ได้มาจากข้าง
 
-
+#include <TridentTD_LineNotify.h>
 #include <TaskScheduler.h>
 #include <ESP8266WiFi.h>
 #include <WiFiClientSecure.h>  // เปลี่ยนเป็น WiFiClientSecure
@@ -288,8 +289,10 @@ void setup() {                       // <---- SetUp
   btnTask.enable();
   sensorReadTask.enable();
   timerTask.enable();
+  LINE.setToken(LINE_TOKEN);
 
   Serial.println("ระบบเริ่มต้นทำงานแล้ว");
+  LINE.notify("ระบบเริ่มต้นทำงานแล้ว");
 }
 
 // เช็คว่ามีน้ำในคลองพร้อมดูดออโต้หรือเปล่า
@@ -321,6 +324,7 @@ void open_pump() {
     digitalWrite(Wather_Pump, HIGH);
     client.publish("ptk/esp8266/status", "Led_ON", true);
     client.publish("ptk/esp8266/btn", "Btn_ON", true);
+    LINE.notify("ปั๊มทำงาน");
     Serial.println("ปั๊มทำงาน");
   }
   // set flag false เพื่อให้ สามารถส่งข้อความได้ หากปั๊มหยุด
@@ -335,7 +339,7 @@ void off_pump() {
     client.publish("ptk/esp8266/status", "Led_OFF", true);
     client.publish("ptk/esp8266/btn", "Btn_OFF", true);
     flag_send_pub_to_led_status = true;  // set เป็น true ไม่ให้ส่งซ้ำ เปลือง data
-
+    LINE.notify("ปั๊มหยุดทำงาน");
     Serial.println("ปั๊มไม่ทำงาน");
   }
 }
@@ -344,6 +348,7 @@ bool Check_Pump_Working() {  // ฟังก์ชันหลักในกา
   // ถ้าเซนเซอร์บน ในสวนน้ำเต็ม หรือ น้ำในคลองหมด
   if (CheckWaterStopPump()) {
     flag_autopump_on = false;  // set flag false ให้ ปั๊มหยุดทำงาน
+    LINE.notify("ปั๊มหยุดทำงาน");
     Serial.printf("น้ำหมดละจ้า \n");
     return false;
   }
