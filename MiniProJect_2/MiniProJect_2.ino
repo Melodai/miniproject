@@ -475,6 +475,7 @@ void Check_Timer_Pump() {
         Serial.printf("Off time \n");
         flag_keep_timer_pump_working = true;  // หมายความว่าได้ทำงานกับการตั้งเวลาไปแล้ว และจำไม่กลับมาทำอีกในวันนั้น
         flag_timer_pump = false;
+        client.publish("ptk/esp8266/btn", "Btn_OFF", true); // สั่งปิดปุ่มด้วย
       }
     } else {
       if (flag_send_set_led_today_working_pump_timer) {
