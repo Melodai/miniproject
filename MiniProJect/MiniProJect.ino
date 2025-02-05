@@ -5,7 +5,7 @@
 #define SensorinSeaDown D2
 #define SensorinSeaUp D1
 #define Wather_Pump D7
-#define LINE_TOKEN  "pBxbGXP8K2Ga9Zn8aOIKeolnR1l4ZZnZamP8ZfXDSQY"   // บรรทัดที่ 13 ใส่ รหัส TOKEN ที่ได้มาจากข้าง
+#define LINE_TOKEN "pBxbGXP8K2Ga9Zn8aOIKeolnR1l4ZZnZamP8ZfXDSQY"  // บรรทัดที่ 13 ใส่ รหัส TOKEN ที่ได้มาจากข้าง
 
 #include <TridentTD_LineNotify.h>
 #include <TaskScheduler.h>
@@ -113,14 +113,29 @@ void callback(char* topic, byte* payload, unsigned int length) {
       Button_Status = true;
       Serial.printf("btn on \n");
       if (client.connected())
-        client.publish("ptk/esp8266/deug", "LED is ON");
+        client.publish("ptk/esp8266/deug", "LED is ON"), true;
     } else if (message == "Btn_OFF") {
       Button_Status = false;
       Serial.printf("btn off \n");
       if (client.connected())
-        client.publish("ptk/esp8266/deug", "LED is OFF");
+        client.publish("ptk/esp8266/deug", "LED is OFF", true);
     }
-  } else if (topicStr == "ptk/esp8266/set-debug") {
+    // ตอบการ request dc
+  } else if (topicStr == "ptk/esp8266/request-check") {
+    // ใช้ timeClient โดยตรงเลย ไม่ต้องผ่าน getCurrentTimeMinutes
+    char Current_Time[50];
+
+    snprintf(Current_Time, sizeof(Current_Time),
+             "Start_Time: %02d:%02d:%02d",
+             timeClient.getHours(),
+             timeClient.getMinutes(),
+             timeClient.getSeconds());
+
+    Serial.printf("Current_Time = %s", Current_Time);
+    client.publish("ptk/esp8266/status-request", Current_Time, true);
+  }
+
+  else if (topicStr == "ptk/esp8266/set-debug") {
     if (message == "D_ON") {
       flag_debug_SerialPrint = true;
       Serial.printf("D_ON on \n");
@@ -243,6 +258,7 @@ void reconnect() {
       client.subscribe("ptk/esp8266/water-level-park");
       client.subscribe("ptk/esp8266/water-level-pub");
       client.subscribe("ptk/esp8266/btn");
+      client.subscribe("ptk/esp8266/request-check");
     } else {
       Serial.print("failed, rc=");
       Serial.print(client.state());
@@ -251,6 +267,8 @@ void reconnect() {
     }
   }
 }
+
+//Task ของแต่ละงาน
 void Check_Auto_Pump();
 void Check_Btn_Pump();
 void SensorRead();  // อ่านและทำการส่งค่าไปที่เกจ ของ แอพ
