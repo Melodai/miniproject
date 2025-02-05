@@ -45,6 +45,7 @@ bool flag_send_set_led_today_working_pump_timer = false;  // เก็บ  flag 
 bool flag_debug_SerialPrint = false;                      // สถานะสั่งเปิด  Debug ไว้ดู
 int water_level_park = 0;                                 // ไว้เช็คไม่ให้มันส่งค่าเกจทำงานซ้ำ
 int water_level_pub = 0;                                  // ไว้เช็คไม่ให้มันส่งค่าเกจทำงานซ้ำ
+bool flag_check_resp_firstConnect = false;
 
 unsigned long lastNTPUpdate = 0;
 const unsigned long NTP_INTERVAL = 3600000;  // 1 ชั่วโมง (60*60*1000 ms)
@@ -93,6 +94,22 @@ void setup_wifi() {
   Serial.println("IP address: ");
   Serial.println(WiFi.localIP());
 }
+
+// ส่ง resp แจ้งสำหรับการ connect ในครั้งแรก
+void Send_Resp_First_Connect() {
+  // ใช้ timeClient โดยตรงเลย ไม่ต้องผ่าน getCurrentTimeMinutes
+  char Current_Time[50];
+
+  snprintf(Current_Time, sizeof(Current_Time),
+           "Start_Time: %02d:%02d:%02d",
+           timeClient.getHours(),
+           timeClient.getMinutes(),
+           timeClient.getSeconds());
+
+  Serial.printf("Current_Time = %s", Current_Time);
+  client.publish("ptk/esp8266/status-request", Current_Time, true);
+}
+
 // ส่วนหลักเลย ที่ใช้ในการรับค่าจาก Broker
 void callback(char* topic, byte* payload, unsigned int length) {
   String message = "";
@@ -122,17 +139,7 @@ void callback(char* topic, byte* payload, unsigned int length) {
     }
     // ตอบการ request dc
   } else if (topicStr == "ptk/esp8266/request-check") {
-    // ใช้ timeClient โดยตรงเลย ไม่ต้องผ่าน getCurrentTimeMinutes
-    char Current_Time[50];
-
-    snprintf(Current_Time, sizeof(Current_Time),
-             "Start_Time: %02d:%02d:%02d",
-             timeClient.getHours(),
-             timeClient.getMinutes(),
-             timeClient.getSeconds());
-
-    Serial.printf("Current_Time = %s", Current_Time);
-    client.publish("ptk/esp8266/status-request", Current_Time, true);
+    Send_Resp_First_Connect();
   }
 
   else if (topicStr == "ptk/esp8266/set-debug") {
@@ -311,6 +318,8 @@ void setup() {                       // <---- SetUp
 
   Serial.println("ระบบเริ่มต้นทำงานแล้ว");
   LINE.notify("ระบบเริ่มต้นทำงานแล้ว");
+  //Resp for first connect
+  Send_Resp_First_Connect();
 }
 
 // เช็คว่ามีน้ำในคลองพร้อมดูดออโต้หรือเปล่า
