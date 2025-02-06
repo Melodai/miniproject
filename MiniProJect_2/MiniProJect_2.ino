@@ -5,9 +5,8 @@
 #define SensorinSeaDown D2
 #define SensorinSeaUp D1
 #define Wather_Pump D7
-#define LINE_TOKEN "pBxbGXP8K2Ga9Zn8aOIKeolnR1l4ZZnZamP8ZfXDSQY"  // บรรทัดที่ 13 ใส่ รหัส TOKEN ที่ได้มาจากข้าง
-
-#include <TridentTD_LineNotify.h>
+// #define LINENOTIFY_DEBUG_MODE 1
+// #include <TridentTD_LineNotify.h>
 #include <TaskScheduler.h>
 #include <ESP8266WiFi.h>
 #include <WiFiClientSecure.h>  // เปลี่ยนเป็น WiFiClientSecure
@@ -16,17 +15,28 @@
 #include <WiFiUdp.h>
 #include <TimeLib.h>
 
+#include <UniversalTelegramBot.h>
+
 // สร้าง Scheduler
 Scheduler runner;
 
 // Update these with values suitable for your network.
 
-const char* ssid = "Nebula";
-const char* password = "teacherRoom";
+const char* ssid = "AIS 4G Hi-Speed - PTK";
+const char* password = "1212312121";
 const char* mqtt_server = "6555a54274d6454ab49e8eb9b94c325c.s1.eu.hivemq.cloud";
 // เพิ่มตัวแปรสำหรับ MQTT credentials
-const char* mqtt_username = "esp8266ptk";  // user HivvMQ Cluster
-const char* mqtt_password = "Aa12341234";  // Pass HivvMQ Cluster
+const char* mqtt_username = "esp8266ptk";                         // user HivvMQ Cluster
+const char* mqtt_password = "Aa12341234";                         // Pass HivvMQ Cluster
+ //#define LINE_TOKEN "pBxbGXP8K2Ga9Zn8aOIKeolnR1l4ZZnZamP8ZfXDSQY"  // บรรทัดที่ 13 ใส่ รหัส TOKEN ที่ได้มาจากข้าง
+
+
+const String botToken = "8083257071:AAGo12_77e8KmgXfuXyz_xn8R6OGBV00m6w";   // Token ของบอทที่ได้จาก BotFather
+const String chatID = "-1002408045320";          // ID ของแชทที่จะส่งข้อความไป
+
+
+
+
 
 
 int parkDownStatus, parkUpStatus;  // ตัวเก็บค่าที่อ่านได้ จากเซนเซอร์ในสวน
@@ -47,6 +57,9 @@ int water_level_park = 0;                                 // ไว้เช็�
 int water_level_pub = 0;                                  // ไว้เช็คไม่ให้มันส่งค่าเกจทำงานซ้ำ
 bool flag_check_resp_firstConnect = false;
 
+bool flag_line = false;
+
+
 unsigned long lastNTPUpdate = 0;
 const unsigned long NTP_INTERVAL = 3600000;  // 1 ชั่วโมง (60*60*1000 ms)
 
@@ -55,11 +68,14 @@ WiFiUDP ntpUDP;
 NTPClient timeClient(ntpUDP, "pool.ntp.org");
 const long utcOffsetInSeconds = 25200;  // UTC+7 (Thailand)
 WiFiClientSecure espClient;             // เปลี่ยนเป็น WiFiClientSecure
+//WiFiClientSecure* lineClient;    // สำหรับ LINE
+//WiFiClientSecure telegram_client; // telegram
+UniversalTelegramBot bot_telegram(botToken, espClient); //telegram
+
 PubSubClient client(espClient);
 //unsigned long lastMsg = 0;
 #define MSG_BUFFER_SIZE (50)
 char msg[MSG_BUFFER_SIZE];
-//int value = 0;
 
 //wi fi setup
 void setup_wifi() {
@@ -146,11 +162,13 @@ void callback(char* topic, byte* payload, unsigned int length) {
     if (message == "D_ON") {
       flag_debug_SerialPrint = true;
       Serial.printf("D_ON on \n");
+      flag_line = true;
+      // LINE.notify("5555 send");
       if (client.connected())
         client.publish("ptk/esp8266/deug", "Debug is ON");
     } else if (message == "D_OFF") {
       flag_debug_SerialPrint = false;
-      Serial.printf("D_OF on \n");
+      Serial.printf("D_OFF \n");
       if (client.connected())
         client.publish("ptk/esp8266/deug", "Debug is ON");
     }
@@ -280,12 +298,14 @@ void Check_Auto_Pump();
 void Check_Btn_Pump();
 void SensorRead();  // อ่านและทำการส่งค่าไปที่เกจ ของ แอพ
 void Check_Timer_Pump();
+void Notify(); // Notify
 
 // สร้าง Tasks
 Task sensorReadTask(200, TASK_FOREVER, &SensorRead);      //  สำหรับ  Check Sensor
 Task checkPumpTask(500, TASK_FOREVER, &Check_Auto_Pump);  // สำหรับ Pump ทำงานหลักเลย
 Task btnTask(500, TASK_FOREVER, &Check_Btn_Pump);         // สำหรับสั่งปุ่มกดล้วน ๆ
 Task timerTask(500, TASK_FOREVER, &Check_Timer_Pump);     // สำหรับ auto timer
+Task notifyTask(2500, TASK_FOREVER, &Notify);     // สำหรับ Notify
 
 
 void setup() {                       // <---- SetUp
@@ -294,36 +314,56 @@ void setup() {                       // <---- SetUp
   pinMode(SensorinSeaDown, INPUT);   //เซ็นเซอร์ในคลอง 1
   pinMode(SensorinParkUp, INPUT);    //เซ็นเซอร์ในสวน 2
   pinMode(SensorinParkDown, INPUT);  //เซ็นเซอร์ในสวน 1
-  pinMode(LED_Green, OUTPUT);          // เทสปุ่มกดเปิด
-  pinMode(LED_Red, OUTPUT);         // เทสปุ่มกดปิด
-  digitalWrite(LED_Red, LOW) ;
-  digitalWrite(LED_Green, HIGH) ;
+  pinMode(LED_Green, OUTPUT);        // เทสปุ่มกดเปิด
+  pinMode(LED_Red, OUTPUT);          // เทสปุ่มกดปิด
+  digitalWrite(LED_Red, LOW);
+  digitalWrite(LED_Green, HIGH);
 
   Serial.begin(115200);
   setup_wifi();
   // เพิ่มการตั้งค่า SSL
   espClient.setInsecure();  // ไม่ตรวจสอบ certificate
+ 
+  
+ 
+
   client.setServer(mqtt_server, 8883);
   client.setCallback(callback);
+
+  //telegram_client.setInsecure();  // เพิ่มการตั้งค่า telegram client ด้วยการปิดการตรวจสอบใบรับรอง SSL
 
   // เพิ่ม tasks เข้าไปใน scheduler
   runner.addTask(checkPumpTask);
   runner.addTask(btnTask);
   runner.addTask(sensorReadTask);
   runner.addTask(timerTask);
+  //runner.addTask(notifyTask);
 
   // เริ่มต้นการทำงานของ tasks
   checkPumpTask.enable();
   btnTask.enable();
   sensorReadTask.enable();
   timerTask.enable();
-  LINE.setToken(LINE_TOKEN);
+  //notifyTask.enable();
+  //LINE.setToken(LINE_TOKEN);
 
-  Serial.println("ระบบเริ่มต้นทำงานแล้ว");
+  Serial.println("ระบบเริ่มต้นทำงานแล้ว");  
+
+ bot_telegram.sendMessage(chatID, "ระบบเริ่มต้นทำงานแล้ว", "");
   //if(client.connected())
-    LINE.notify("ระบบเริ่มต้นทำงานแล้ว");
+  // sendLineNotify("ระบบเริ่มต้นทำงานแล้ว");
+
+  // if(flag_line == true ){
+  //   LINE.notify("ห่ะปั้มทำงานแล้วหรอไม่บอกไม่รู้นะเนีย");
+  // }
   //Resp for first connect
   Send_Resp_First_Connect();
+}
+
+void Notify(){
+  
+  bot_telegram.sendMessage(chatID, "รัว ๆ มาเลย", "");
+
 }
 
 // เช็คว่ามีน้ำในคลองพร้อมดูดออโต้หรือเปล่า
@@ -352,13 +392,16 @@ void updateNTPTime() {
 
 void open_pump() {
   if (!pump_working && client.connected()) {
+    // sendLineNotify("ปั๊มทำงานสักที");
     digitalWrite(Wather_Pump, HIGH);
     client.publish("ptk/esp8266/status", "Led_ON", true);
     client.publish("ptk/esp8266/btn", "Btn_ON", true);
-    LINE.notify("ปั๊มทำงาน");
+    
+    bot_telegram.sendMessage(chatID, "เย้ !! ปั๊มทำงานสักที", "");
+
     Serial.println("ปั๊มทำงาน");
-    digitalWrite(LED_Green,LOW);
-    digitalWrite(LED_Red, HIGH) ;
+    digitalWrite(LED_Green, LOW);
+    digitalWrite(LED_Red, HIGH);
   }
   // set flag false เพื่อให้ สามารถส่งข้อความได้ หากปั๊มหยุด
   Serial.printf("พยามสั่งปั๊ม \n");
@@ -372,18 +415,19 @@ void off_pump() {
     client.publish("ptk/esp8266/status", "Led_OFF", true);
     client.publish("ptk/esp8266/btn", "Btn_OFF", true);
     flag_send_pub_to_led_status = true;  // set เป็น true ไม่ให้ส่งซ้ำ เปลือง data
-    LINE.notify("ปั๊มหยุดทำงาน");
+
+    // sendLineNotify("ปั๊มขอพักบ้าง");
+    bot_telegram.sendMessage(chatID, "ปั๊มขอพักบ้าง !! เห้อ ...", "");
     Serial.println("ปั๊มไม่ทำงาน");
-    digitalWrite(LED_Red,LOW);
-  digitalWrite(LED_Green, HIGH) ;
+    digitalWrite(LED_Red, LOW);
+    digitalWrite(LED_Green, HIGH);
   }
 }
 bool Check_Pump_Working() {  // ฟังก์ชันหลักในการเช็คการทำงานของปั๊มเลย จะถูกเรียกใน Task AutoPump เท่านั้น
-
   // ถ้าเซนเซอร์บน ในสวนน้ำเต็ม หรือ น้ำในคลองหมด
   if (CheckWaterStopPump()) {
     flag_autopump_on = false;  // set flag false ให้ ปั๊มหยุดทำงาน
-    LINE.notify("ปั๊มหยุดทำงาน");
+    // LINE.notify("ปั๊มหยุดทำงาน");
     Serial.printf("น้ำหมดละจ้า \n");
     return false;
   }
@@ -411,6 +455,7 @@ bool Check_Pump_Working() {  // ฟังก์ชันหลักในกา
   return false;
 }
 
+int i = 0;
 void loop() {
 
   if (!client.connected()) {
@@ -471,11 +516,11 @@ void Check_Timer_Pump() {
           flag_send_set_led_today_working_pump_timer = true;  // set เป็น true จะได้ไม่ส่งซ้ำ เปลือง data และ reset ตอนทำงานในครั้งถัดไป
         }
         // ถ้าเป็นทำงานอยู่และ น้ำเต็มสวน หรือน้ำหมดคลอง  หรือ ได้เวลาหยุดแล้ว หรือ ยังไม่ถึงเวลาเริ่ม ให้หยุดซะ
-      } else if (flag_timer_pump && (CheckWaterStopPump()  || currentTimeMinutes >= stopTimeMinutes || currentTimeMinutes < startTimeMinutes)) {
+      } else if (flag_timer_pump && (CheckWaterStopPump() || currentTimeMinutes >= stopTimeMinutes || currentTimeMinutes < startTimeMinutes)) {
         Serial.printf("Off time \n");
         flag_keep_timer_pump_working = true;  // หมายความว่าได้ทำงานกับการตั้งเวลาไปแล้ว และจำไม่กลับมาทำอีกในวันนั้น
         flag_timer_pump = false;
-        client.publish("ptk/esp8266/btn", "Btn_OFF", true); // สั่งปิดปุ่มด้วย
+        client.publish("ptk/esp8266/btn", "Btn_OFF", true);  // สั่งปิดปุ่มด้วย
       }
     } else {
       if (flag_send_set_led_today_working_pump_timer) {
@@ -588,7 +633,7 @@ void Check_Btn_Pump() {  //Task Check Btn
       printf("Retrun true Her \n");
       flag_trigBtn_start = true;
       // ถ้าปุ่มเปิดแล้ว แต่น้ำเต็มสวน หรือน้ำหมดคลอง
-    } else if (flag_trigBtn_start &&  CheckWaterStopPump()) {
+    } else if (flag_trigBtn_start && CheckWaterStopPump()) {
       printf("Retrun flase Her \n");
       flag_trigBtn_start = false;
       // ถ้าไม่มีการกดปุ่ม
